@@ -131,3 +131,15 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+import os
+ 
+SECRET_KEY = os.environ.get("SECRET_KEY", SECRET_KEY)
+_HOST = os.environ.get("RENDER_EXTERNAL_HOSTNAME")          # set automatically by Render
+DEBUG = os.environ.get("DEBUG", "0" if _HOST else "1") == "1"
+if _HOST:
+    ALLOWED_HOSTS = [_HOST]
+    CSRF_TRUSTED_ORIGINS = [f"https://{_HOST}"]
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
+    STATIC_ROOT = BASE_DIR / "staticfiles"
+ 
