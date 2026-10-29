@@ -1,0 +1,388 @@
+{% verbatim %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Field Agent</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--tx:#14202b;--mut:#64748b;--bd:#d9e0e7;--ac:#0b6bcb;--ok:#15803d;--bad:#b91c1c;--warn:#b45309}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1720;--card:#18222d;--tx:#e6edf3;--mut:#93a3b5;--bd:#2a3744;--ac:#4aa3ff;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24}}
+*{box-sizing:border-box}body{margin:0;font:16px system-ui,sans-serif;background:var(--bg);color:var(--tx)}
+main{max-width:520px;margin:0 auto;padding:12px}
+header{display:flex;justify-content:space-between;align-items:center;margin:4px 0 12px;gap:8px}
+h1{font-size:20px;margin:0}h2{font-size:15px;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:12px}
+label{display:block;font-size:13px;color:var(--mut);margin:8px 0 3px}
+input,select{width:100%;padding:12px;font-size:16px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{width:100%;margin-top:12px;padding:14px;font-size:16px;font-weight:600;border:0;border-radius:8px;background:var(--ac);color:#fff}
+button.sec{background:transparent;color:var(--ac);border:1px solid var(--ac)}
+button.mini{width:auto;margin:0;padding:8px 14px;font-size:14px}
+.chip{padding:4px 10px;border-radius:99px;font-size:13px;font-weight:600;border:1px solid var(--bd)}
+.on,.done{color:var(--ok)}.off,.bad{color:var(--bad)}.pend{color:var(--warn)}
+.rec{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-top:1px solid var(--bd);font-size:14px}
+.msg{font-size:13px;color:var(--mut);margin-top:8px;min-height:18px}.err{color:var(--bad);font-size:14px;min-height:18px;margin-top:8px}
+.hide{display:none}.big{font-size:22px;letter-spacing:.3em;text-align:center}
+</style>
+</head>
+<body>
+<main>
+<header><h1>Field Agent</h1><span><span id="net" class="chip"></span> <button id="lockbtn" class="mini sec hide">Lock</button></span></header>
+
+<section id="setup" class="card hide">
+  <h2>One-time setup</h2>
+  <label>Device ID</label><input id="s_dev" placeholder="phone-1" autocapitalize="none">
+  <label>Device secret (from the office)</label><input id="s_sec" type="password">
+  <div class="row">
+    <div><label>Default depot</label><input id="s_dep" value="D1"></div>
+    <div><label>Default item</label><input id="s_item" value="LPG-14kg"></div>
+  </div>
+  <label>Choose a PIN (6+ characters). It encrypts everything on this phone.</label><input id="s_pin" type="password" inputmode="numeric">
+  <label>Repeat PIN</label><input id="s_pin2" type="password" inputmode="numeric">
+  <div class="err" id="s_err"></div>
+  <button id="s_save">Save and start</button>
+</section>
+
+<section id="lock" class="card hide">
+  <h2>Enter PIN to unlock</h2>
+  <input id="l_pin" type="password" inputmode="numeric" class="big">
+  <div class="err" id="l_err"></div>
+  <button id="l_ok">Unlock</button>
+</section>
+
+<section id="app" class="hide">
+  <div class="card">
+    <div class="row" style="align-items:center"><h2 style="margin:0">Today's route (<span id="rcount">0</span>)</h2>
+      <button id="refresh" class="mini sec" style="justify-self:end">Refresh route</button></div>
+    <div class="msg" id="rtime"></div>
+    <div id="route"></div>
+  </div>
+
+  <div class="card hide" id="sheet">
+    <h2 id="f_title">Deliver</h2>
+    <label>Order ID</label><input id="f_ord" autocapitalize="characters">
+    <div class="row">
+      <div><label>Quantity</label><input id="f_qty" type="number" inputmode="numeric" min="1"></div>
+      <div><label>Amount due</label><input id="f_due" type="number" inputmode="decimal"></div>
+    </div>
+    <label>Paid now (optional)</label><input id="f_paid" type="number" inputmode="decimal">
+    <div id="f_otpbox">
+      <label>Customer's OTP (from their SMS). Works with no signal.</label>
+      <input id="f_otp" type="password" inputmode="numeric" maxlength="6" class="big" placeholder="------">
+      <button id="f_nootp" class="sec" style="margin-top:8px">Customer has no code</button>
+    </div>
+    <div id="fb" class="hide">
+      <label>Why no OTP?</label>
+      <select id="f_reason"><option value="">Choose a reason</option>
+        <option value="no_sms">Customer did not get the SMS</option>
+        <option value="no_phone">Customer has no phone</option>
+        <option value="other">Other</option></select>
+    </div>
+    <div class="err" id="f_err"></div>
+    <button id="f_ok">Confirm delivery</button>
+    <div class="row"><button id="f_skip" class="sec">Customer not home</button><button id="f_cancel" class="sec">Cancel</button></div>
+  </div>
+
+  <div class="card">
+    <h2>Other</h2>
+    <div class="row"><button id="otherbtn" class="sec" style="margin:0">Order not on list</button></div>
+    <label>Collect a payment</label>
+    <div class="row"><input id="p_ord" placeholder="Order ID" autocapitalize="characters"><input id="p_amt" type="number" inputmode="decimal" placeholder="Amount"></div>
+    <button id="p_save" class="sec">Save payment</button>
+  </div>
+
+  <div class="card">
+    <div class="row" style="align-items:center">
+      <div><strong id="pend">0</strong> waiting to upload<div class="msg" id="last"></div></div>
+      <button id="sync" style="margin:0">Sync now</button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="card"><h2>Recent records</h2><div id="log"></div>
+    <button id="reset" class="sec hide">Sign out and erase this phone</button></div>
+</section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const enc = new TextEncoder(), dec = new TextDecoder();
+const LS = {
+  get: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v === null ? d : v; } catch (e) { return d; } },
+  set: (k, v) => localStorage.setItem(k, JSON.stringify(v)),
+  raw: k => localStorage.getItem(k), setRaw: (k, v) => localStorage.setItem(k, v)
+};
+const API = location.pathname.replace(/agent\/?$/, '');      // /api/
+
+// ================= crypto: SHA-256, HMAC, PBKDF2, encrypt-then-MAC (plain JS, works on http phones too) =================
+const K = [], H0 = [], W = new Int32Array(64);
+for (let n = 2, c = 0; c < 64; n++) {
+  let p = true; for (let d = 2; d * d <= n; d++) if (n % d === 0) { p = false; break; }
+  if (p) { if (c < 8) H0[c] = (Math.sqrt(n) % 1 * 2 ** 32) | 0; K[c] = (Math.cbrt(n) % 1 * 2 ** 32) | 0; c++; }
+}
+function sha256(msg) {
+  const l = msg.length, pl = ((l + 9 + 63) >> 6) << 6, buf = new Uint8Array(pl);
+  buf.set(msg); buf[l] = 0x80;
+  const dv = new DataView(buf.buffer);
+  dv.setUint32(pl - 4, (l * 8) >>> 0); dv.setUint32(pl - 8, Math.floor(l * 8 / 2 ** 32));
+  const h = H0.slice(), rr = (x, n) => (x >>> n) | (x << (32 - n));
+  for (let i = 0; i < pl; i += 64) {
+    for (let t = 0; t < 16; t++) W[t] = dv.getUint32(i + t * 4);
+    for (let t = 16; t < 64; t++) {
+      const a = W[t - 15], c = W[t - 2];
+      W[t] = (W[t - 16] + (rr(a, 7) ^ rr(a, 18) ^ (a >>> 3)) + W[t - 7] + (rr(c, 17) ^ rr(c, 19) ^ (c >>> 10))) | 0;
+    }
+    let [a, b, c, d, e, f, g, hh] = h;
+    for (let t = 0; t < 64; t++) {
+      const t1 = (hh + (rr(e, 6) ^ rr(e, 11) ^ rr(e, 25)) + ((e & f) ^ (~e & g)) + K[t] + W[t]) | 0;
+      const t2 = ((rr(a, 2) ^ rr(a, 13) ^ rr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+      hh = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+    }
+    [a, b, c, d, e, f, g, hh].forEach((v, j) => h[j] = (h[j] + v) | 0);
+  }
+  const out = new Uint8Array(32), o = new DataView(out.buffer);
+  h.forEach((v, j) => o.setInt32(j * 4, v));
+  return out;
+}
+function mkHmac(key) {                       // returns a function msg -> 32-byte MAC
+  const k = key.length > 64 ? sha256(key) : key, ip = new Uint8Array(64).fill(0x36), op = new Uint8Array(64).fill(0x5c);
+  k.forEach((v, i) => { ip[i] ^= v; op[i] ^= v; });
+  return msg => {
+    const a = new Uint8Array(64 + msg.length); a.set(ip); a.set(msg, 64);
+    const b = new Uint8Array(96); b.set(op); b.set(sha256(a), 64);
+    return sha256(b);
+  };
+}
+const hex = u => [...u].map(b => b.toString(16).padStart(2, '0')).join('');
+const unhex = s => Uint8Array.from(s.match(/../g) || [], h => parseInt(h, 16));
+const hmacHex = (key, text) => hex(mkHmac(enc.encode(key))(enc.encode(text)));
+function pbkdf2(pass, salt, iter) {
+  const f = mkHmac(pass), s = new Uint8Array(salt.length + 4); s.set(salt); s[salt.length + 3] = 1;
+  let u = f(s); const t = u.slice();
+  for (let i = 1; i < iter; i++) { u = f(u); for (let j = 0; j < 32; j++) t[j] ^= u[j]; }
+  return t;
+}
+function uuid4() {
+  const b = crypto.getRandomValues(new Uint8Array(16)); b[6] = (b[6] & 15) | 64; b[8] = (b[8] & 63) | 128;
+  const h = hex(b);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+// ================= encrypted vault: everything sensitive is encrypted with a key derived from the PIN =================
+const ENC = ['cfg', 'outbox', 'log', 'manifest', 'rejected'];
+const DEF = { cfg: () => null, outbox: () => [], log: () => [], manifest: () => ({ orders: [], at: null }), rejected: () => [] };
+let key = null, mem = {}, locked = true;
+const ctr = (iv, i) => { const m = new Uint8Array(20); m.set(iv); new DataView(m.buffer).setUint32(16, i); return m; };
+function seal(text) {
+  const iv = crypto.getRandomValues(new Uint8Array(16)), pt = enc.encode(text), ks = mkHmac(key.enc), out = new Uint8Array(16 + pt.length + 32);
+  out.set(iv);
+  for (let i = 0; i < pt.length; i += 32) { const b = ks(ctr(iv, i / 32)); for (let j = 0; j < 32 && i + j < pt.length; j++) out[16 + i + j] = pt[i + j] ^ b[j]; }
+  out.set(mkHmac(key.mac)(out.subarray(0, 16 + pt.length)), 16 + pt.length);
+  return hex(out);
+}
+function unseal(h) {
+  const d = unhex(h), n = d.length - 32; if (n < 16) throw new Error('short');
+  const tag = mkHmac(key.mac)(d.subarray(0, n)); let bad = 0; for (let i = 0; i < 32; i++) bad |= tag[i] ^ d[n + i];
+  if (bad) throw new Error('tampered');
+  const iv = d.subarray(0, 16), ks = mkHmac(key.enc), pt = new Uint8Array(n - 16);
+  for (let i = 0; i < pt.length; i += 32) { const b = ks(ctr(iv, i / 32)); for (let j = 0; j < 32 && i + j < pt.length; j++) pt[i + j] = d[16 + i + j] ^ b[j]; }
+  return dec.decode(pt);
+}
+function deriveKeys(pin, saltHex) {
+  const f = mkHmac(pbkdf2(enc.encode(pin), unhex(saltHex), 10000));
+  return { enc: f(enc.encode('enc')), mac: f(enc.encode('mac')), ver: hex(f(enc.encode('verify'))) };
+}
+const get = k => ENC.includes(k) ? (mem[k] !== undefined ? mem[k] : DEF[k]()) : LS.get(k, k === 'seq' ? 0 : null);
+function set(k, v) { if (ENC.includes(k)) { mem[k] = v; LS.setRaw('v_' + k, seal(JSON.stringify(v))); } else LS.set(k, v); }
+function createVault(pin) {
+  const salt = hex(crypto.getRandomValues(new Uint8Array(16))); key = deriveKeys(pin, salt); mem = {};
+  ENC.forEach(x => localStorage.removeItem('v_' + x)); LS.set('meta', { salt, ver: key.ver });
+}
+function unlockVault(pin) {
+  const m = LS.get('meta', null); if (!m) return false;
+  const k = deriveKeys(pin, m.salt); if (k.ver !== m.ver) return false;
+  key = k; mem = {};
+  ENC.forEach(x => { const r = LS.raw('v_' + x); if (r) { try { mem[x] = JSON.parse(unseal(r)); } catch (e) {} } });
+  return true;
+}
+function wipeAll() { ['meta', 'seq', 'lastSync', ...ENC.map(x => 'v_' + x)].forEach(x => localStorage.removeItem(x)); key = null; mem = {}; locked = true; }
+
+// ================= events (saved locally first, so they work with no connectivity) =================
+function addEvent(type, payload, label) {
+  const seq = get('seq') + 1; set('seq', seq);
+  const ev = { event_id: uuid4(), seq, type, payload, client_ts: new Date().toISOString() };
+  const ob = get('outbox'); ob.push(ev); set('outbox', ob);
+  const log = get('log'); log.unshift({ id: ev.event_id, label, synced: false }); set('log', log.slice(0, 40));
+}
+const signedPost = (path, obj) => {
+  const body = JSON.stringify(obj), c = get('cfg');
+  return fetch(API + path, { method: 'POST', body,
+    headers: { 'Content-Type': 'application/json', 'X-Device-Id': c.deviceId, 'X-Signature': hmacHex(c.secret, body) } });
+};
+function blocked() { wipeAll(); alert('This phone was blocked by the office and has been erased.'); render(); }
+
+// ================= sync (batches, safe to retry: the server ignores duplicates) =================
+let syncing = false;
+async function sync() {
+  if (syncing || !key || !get('cfg')) return;
+  if (!get('outbox').length) return render();
+  syncing = true; setMsg('Syncing...');
+  try {
+    for (;;) {
+      const batch = get('outbox').slice(0, 200); if (!batch.length) break;
+      const r = await signedPost('sync/', { local_max_seq: get('seq'), events: batch });
+      if (r.status === 403) { syncing = false; return blocked(); }
+      if (r.status === 401) { setMsg('Device not recognised. Check ID and secret with the office.'); break; }
+      if (!r.ok) throw new Error(r.status);
+      const j = await r.json();
+      const rej = j.rejected.filter(x => x.event_id), gone = new Set([...j.acked, ...rej.map(x => x.event_id)]);
+      if (!gone.size) break;
+      set('outbox', get('outbox').filter(e => !gone.has(e.event_id)));
+      const ack = new Set(j.acked), bad = new Set(j.otp_failed || []);
+      set('log', get('log').map(x => ack.has(x.id) ? { ...x, synced: true, bad: bad.has(x.id) } : x));
+      if (rej.length) set('rejected', get('rejected').concat(rej));
+      LS.set('lastSync', new Date().toISOString()); setMsg('');
+    }
+  } catch (e) { setMsg('No connection. Records are saved and will upload automatically.'); }
+  syncing = false; render();
+}
+async function refreshRoute() {
+  if (!key || !get('cfg') || !navigator.onLine) return;
+  try {
+    const r = await signedPost('manifest/', { nonce: uuid4() });
+    if (r.status === 403) return blocked();
+    if (!r.ok) throw new Error(r.status);
+    const j = await r.json(), queued = new Set(get('outbox').filter(e => e.type === 'DELIVERY').map(e => e.payload.order_id));
+    set('manifest', { orders: j.orders.filter(o => !queued.has(o.order_id)), at: new Date().toISOString() });
+  } catch (e) {}
+  render();
+}
+
+// ================= delivery sheet with OFFLINE OTP check =================
+let cur = null, tries = 0, fallback = false;
+const num = id => parseFloat($(id).value);
+const ferr = t => { $('f_err').textContent = t; };
+function setFallback() { fallback = true; $('f_otpbox').classList.add('hide'); $('fb').classList.remove('hide'); }
+function openSheet(id) {
+  const o = id ? get('manifest').orders.find(x => x.order_id === id) : null;
+  cur = o || null; tries = 0; fallback = false;
+  $('sheet').classList.remove('hide'); $('f_title').textContent = o ? 'Deliver ' + o.order_id : 'Order not on list';
+  $('f_ord').value = o ? o.order_id : ''; $('f_ord').readOnly = !!o;
+  $('f_qty').value = o ? o.qty : 1; $('f_due').value = o ? o.amount_due : ''; $('f_paid').value = ''; $('f_otp').value = '';
+  $('f_reason').value = ''; $('fb').classList.add('hide'); $('f_otpbox').classList.remove('hide'); ferr('');
+  $('f_skip').classList.toggle('hide', !o);
+  if ($('sheet').scrollIntoView) $('sheet').scrollIntoView();
+}
+const closeSheet = () => { $('sheet').classList.add('hide'); cur = null; };
+function checkOtp(order, otp) {                      // no network needed: compare against the downloaded salted hash
+  const c = order.otp; return hex(pbkdf2(enc.encode(otp), enc.encode(c.salt), c.iter)) === c.hash;
+}
+$('f_nootp').onclick = setFallback;
+$('f_cancel').onclick = closeSheet;
+$('f_ok').onclick = () => {
+  const c = get('cfg'), order = $('f_ord').value.trim(), qty = num('f_qty'), due = num('f_due'), paid = num('f_paid');
+  if (!order || !(qty > 0) || isNaN(due)) return ferr('Order ID, quantity and amount due are required');
+  const p = { order_id: order, depot: cur ? cur.depot : c.depot, item: cur ? cur.item : c.item, qty, amount_due: due };
+  if (fallback) {
+    const r = $('f_reason').value; if (!r) return ferr('Choose why there is no OTP');
+    p.no_otp_reason = r;
+  } else {
+    const otp = $('f_otp').value.trim(); if (!/^\d{6}$/.test(otp)) return ferr('Enter the 6-digit OTP');
+    if (cur && !checkOtp(cur, otp)) {
+      tries++; $('f_otp').value = '';
+      if (tries >= 5) { setFallback(); return ferr('Too many wrong codes. Record this delivery without an OTP.'); }
+      return ferr(`Wrong code (${tries}/5). Ask the customer to check their SMS.`);
+    }
+    p.otp = otp;                                       // server checks it again on sync (authoritative)
+  }
+  if (tries) p.otp_tries = tries;
+  addEvent('DELIVERY', p, `Delivery ${order} x${qty}`);
+  if (paid > 0) addEvent('PAYMENT', { order_id: order, amount: paid }, `Payment ${order} ${paid}`);
+  set('manifest', { ...get('manifest'), orders: get('manifest').orders.filter(o => o.order_id !== order) });
+  closeSheet(); render(); sync();
+};
+$('f_skip').onclick = () => {
+  if (!cur || !confirm('Record that the customer was not home? The order stays on your route.')) return;
+  addEvent('FAILED_ATTEMPT', { order_id: cur.order_id, reason: 'customer_absent' }, `Not home ${cur.order_id}`);
+  closeSheet(); render(); sync();
+};
+$('otherbtn').onclick = () => openSheet(null);
+$('p_save').onclick = () => {
+  const order = $('p_ord').value.trim(), amt = num('p_amt');
+  if (!order || !(amt > 0)) return alert('Order ID and amount are required');
+  addEvent('PAYMENT', { order_id: order, amount: amt }, `Payment ${order} ${amt}`);
+  $('p_ord').value = $('p_amt').value = ''; render(); sync();
+};
+$('sync').onclick = () => { sync(); refreshRoute(); };
+$('refresh').onclick = refreshRoute;
+
+// ================= setup, PIN lock, idle lock =================
+$('s_save').onclick = () => {
+  const dev = $('s_dev').value.trim(), sec = $('s_sec').value, pin = $('s_pin').value;
+  const e = t => { $('s_err').textContent = t; };
+  if (!dev || !sec) return e('Enter the device ID and secret');
+  if (pin.length < 6) return e('PIN must be at least 6 characters');
+  if (pin !== $('s_pin2').value) return e('The two PINs do not match');
+  createVault(pin);
+  set('cfg', { deviceId: dev, secret: sec, depot: $('s_dep').value.trim() || 'D1', item: $('s_item').value.trim() || 'LPG-14kg' });
+  ['s_sec', 's_pin', 's_pin2'].forEach(i => $(i).value = ''); e('');
+  locked = false; touch(); render(); sync(); refreshRoute();
+};
+let fails = 0, until = 0;
+$('l_ok').onclick = () => {
+  const e = t => { $('l_err').textContent = t; };
+  if (Date.now() < until) return e('Too many tries. Wait a little.');
+  if (unlockVault($('l_pin').value)) { fails = 0; $('l_pin').value = ''; e(''); locked = false; touch(); render(); sync(); refreshRoute(); return; }
+  $('l_pin').value = '';
+  if (++fails >= 5) { fails = 0; until = Date.now() + 30000; return e('Too many tries. Wait 30 seconds.'); }
+  e('Wrong PIN');
+};
+const lock = () => { locked = true; render(); };
+$('lockbtn').onclick = lock;
+$('reset').onclick = () => { if (confirm('Erase everything on this phone?')) { wipeAll(); render(); } };
+let last = Date.now();
+const touch = () => { last = Date.now(); };
+['click', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, touch));
+setInterval(() => { if (!locked && Date.now() - last > 120000) lock(); }, 10000);   // sync keeps running while locked
+
+// ================= rendering =================
+function setMsg(t) { $('msg').textContent = t; }
+function renderRoute() {
+  const m = get('manifest'), box = $('route'); box.textContent = ''; $('rcount').textContent = m.orders.length;
+  $('rtime').textContent = m.at ? 'Route downloaded ' + new Date(m.at).toLocaleTimeString() : '';
+  if (!m.orders.length) { box.textContent = m.at ? 'No deliveries left on your route.' : 'Route not downloaded yet. Connect once and tap Refresh route.'; return; }
+  m.orders.forEach(o => {
+    const r = document.createElement('div'); r.className = 'rec';
+    const a = document.createElement('span'), b = document.createElement('button');
+    a.textContent = `${o.order_id}  ${o.village || o.customer_ref || ''}  x${o.qty}  ${o.amount_due}`;
+    b.textContent = 'Deliver'; b.className = 'mini'; b.onclick = () => openSheet(o.order_id);
+    r.append(a, b); box.append(r);
+  });
+}
+function render() {
+  const online = navigator.onLine, hasMeta = !!LS.get('meta', null);
+  $('net').textContent = online ? 'Online' : 'Offline'; $('net').className = 'chip ' + (online ? 'on' : 'off');
+  $('setup').classList.toggle('hide', hasMeta);
+  $('lock').classList.toggle('hide', !hasMeta || !locked);
+  $('app').classList.toggle('hide', !hasMeta || locked);
+  $('lockbtn').classList.toggle('hide', !hasMeta || locked);
+  if (!hasMeta || locked) return;
+  renderRoute();
+  const ob = get('outbox'); $('pend').textContent = ob.length;
+  const ls = LS.get('lastSync', null); $('last').textContent = ls ? 'Last upload ' + new Date(ls).toLocaleTimeString() : 'Not uploaded yet';
+  const box = $('log'); box.textContent = '';
+  get('log').slice(0, 10).forEach(x => {
+    const r = document.createElement('div'); r.className = 'rec';
+    const a = document.createElement('span'), b = document.createElement('span');
+    a.textContent = x.label; b.textContent = x.bad ? 'OTP wrong, recheck' : x.synced ? 'Uploaded' : 'Waiting';
+    b.className = x.bad ? 'bad' : x.synced ? 'done' : 'pend'; r.append(a, b); box.append(r);
+  });
+  $('reset').classList.toggle('hide', ob.length > 0);
+}
+addEventListener('online', () => { render(); sync(); refreshRoute(); }); addEventListener('offline', render);
+setInterval(() => navigator.onLine && sync(), 30000);
+if (typeof navigator !== 'undefined' && navigator.serviceWorker) navigator.serviceWorker.register(API + 'sw.js').catch(() => {});
+render();
+</script>
+</body>
+</html>{% endverbatim %}

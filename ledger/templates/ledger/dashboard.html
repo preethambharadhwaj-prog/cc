@@ -1,0 +1,162 @@
+{% verbatim %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Office Dashboard</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--tx:#14202b;--mut:#64748b;--bd:#d9e0e7;--ac:#0b6bcb;--ok:#15803d;--bad:#b91c1c;--warn:#b45309}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1720;--card:#18222d;--tx:#e6edf3;--mut:#93a3b5;--bd:#2a3744;--ac:#4aa3ff;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24}}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--tx)}
+main{max-width:1150px;margin:0 auto;padding:16px}
+header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+h1{font-size:22px;margin:0}h2{font-size:13px;margin:0 0 10px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:14px;overflow-x:auto}
+.big{font-size:28px;font-weight:700}.mut{color:var(--mut);font-size:13px}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--bd);font-size:14px;white-space:nowrap}
+th{color:var(--mut);font-weight:600;font-size:12px}
+.badge{display:inline-block;padding:3px 10px;border-radius:99px;font-weight:600;font-size:13px}
+.good{background:#15803d22;color:var(--ok)}.badb{background:#b91c1c22;color:var(--bad)}.warnb{background:#b4530922;color:var(--warn)}.neutral{background:#64748b22;color:var(--mut)}
+button,input,select{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--tx)}
+button{background:var(--ac);color:#fff;border:0;font-weight:600;cursor:pointer}button.sec{background:transparent;color:var(--ac);border:1px solid var(--ac)}
+button.danger{background:var(--bad)}button.sm{padding:4px 10px;font-size:13px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:10px}
+.alert{padding:8px 10px;border-radius:8px;margin-bottom:6px;font-size:14px}a{color:var(--ac)}code{word-break:break-all;font-size:12px}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Office Dashboard</h1>
+  <div><span id="state" class="badge warnb">Loading...</span> <span class="mut" id="asof"></span>
+    &nbsp; <a id="exp" href="#">Export ledger CSV</a></div>
+</header>
+
+<div class="grid">
+  <div class="card"><h2>Outstanding collections</h2><div class="big" id="out">-</div><div class="mut" id="unpaid"></div></div>
+  <div class="card"><h2>Orders</h2><div id="kpi" class="mut">-</div></div>
+  <div class="card"><h2>Alerts</h2><div id="alerts" class="mut">None</div></div>
+</div>
+
+<div class="card"><h2>New order (customer gets the delivery OTP by SMS)</h2>
+  <div class="form">
+    <input id="n_vil" placeholder="Village"><input id="n_ref" placeholder="Customer ref">
+    <input id="n_qty" type="number" min="1" value="1" placeholder="Qty"><input id="n_amt" type="number" placeholder="Amount">
+    <input id="n_dep" value="D1" placeholder="Depot"><input id="n_item" value="LPG-14kg" placeholder="Item">
+    <select id="n_dev"><option value="">Assign to phone...</option></select>
+    <input id="n_ph" placeholder="Customer phone (SMS only, not stored)" inputmode="tel">
+    <button id="n_go">Create order</button>
+  </div>
+  <div id="n_res" class="mut"></div>
+</div>
+
+<div class="card"><h2>Orders</h2>
+  <table><thead><tr><th>Order</th><th>Village</th><th>Agent</th><th>Qty</th><th>Due</th><th>Paid</th><th>Status</th><th>OTP tries</th><th></th></tr></thead>
+  <tbody id="ord"></tbody></table>
+</div>
+
+<div class="card"><h2>Devices and pending data</h2>
+  <table><thead><tr><th>Device</th><th>Last upload</th><th>Received</th><th>Complete up to</th><th>Still pending</th><th></th></tr></thead><tbody id="devs"></tbody></table>
+</div>
+
+<div class="grid">
+  <div class="card"><h2>Stock by depot</h2>
+    <table><thead><tr><th>Depot</th><th>Item</th><th>In stock</th></tr></thead><tbody id="stock"></tbody></table></div>
+  <div class="card"><h2>Audit trail</h2><button id="aud">Verify hash chain</button><div id="audres" class="mut" style="margin-top:8px"></div></div>
+  <div class="card"><h2>Order QR (optional extra proof)</h2>
+    <input id="qo" placeholder="Order ID"> <button id="qb" class="sec">Create</button>
+    <div id="qr" style="margin:10px 0"></div><code id="qt"></code></div>
+</div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const API = location.pathname.replace(/dashboard\/?$/, '');
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const ago = iso => { if (!iso) return 'never'; const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : Math.round(m / 60) + ' h ago'; };
+const cookie = n => (document.cookie.match('(^|;)\\s*' + n + '=([^;]+)') || [])[2];
+const money = v => Number(v).toLocaleString();
+const jget = async p => { const r = await fetch(API + p, { credentials: 'same-origin' }); return { r, j: await r.json() }; };
+const jpost = async (p, body) => { const r = await fetch(API + p, { method: 'POST', credentials: 'same-origin',
+  headers: { 'Content-Type': 'application/json', 'X-CSRFToken': cookie('csrftoken') }, body: JSON.stringify(body) }); return { r, j: await r.json() }; };
+$('exp').href = API + 'export/';
+
+const STATUS = { dispatched: ['On the way', 'neutral'], postponed: ['Postponed', 'warnb'],
+  confirmed: ['Delivered, OTP confirmed', 'good'], unconfirmed: ['Delivered, no valid OTP', 'badb'] };
+const REASON = { no_sms: 'SMS not received', no_phone: 'no phone', other: 'other', wrong_otp: 'wrong OTP', not_given: 'not given' };
+
+function renderReport(d) {
+  const s = d.status;
+  $('state').textContent = s.complete ? 'All data in' : 'Data still pending';
+  $('state').className = 'badge ' + (s.complete ? 'good' : 'warnb');
+  $('asof').textContent = s.complete_as_of ? 'Complete as of ' + new Date(s.complete_as_of).toLocaleString() : 'Some devices have never synced';
+  $('out').textContent = money(d.outstanding);
+  $('unpaid').textContent = d.unpaid_orders.length + ' unpaid orders' + (d.unmatched_payments.length ? ', ' + d.unmatched_payments.length + ' payments awaiting their delivery' : '');
+  $('devs').innerHTML = s.devices.map(x => `<tr><td>${esc(x.device_id)}</td><td>${ago(x.last_sync)}</td><td>${x.received}</td><td>#${x.contiguous_upto}</td>
+    <td><span class="badge ${x.pending_count ? 'warnb' : 'good'}">${x.pending_count ? x.pending_count + ' missing' : 'none'}</span></td>
+    <td>${x.kind === 'phone' ? `<button class="sm danger" data-revoke="${esc(x.device_id)}">Lost phone: block</button>` : ''}</td></tr>`).join('')
+    || '<tr><td colspan="6" class="mut">No devices yet</td></tr>';
+  const sel = $('n_dev'), keep = sel.value;
+  sel.innerHTML = '<option value="">Assign to phone...</option>' + s.devices.filter(x => x.kind === 'phone').map(x => `<option>${esc(x.device_id)}</option>`).join('');
+  sel.value = keep;
+  $('stock').innerHTML = Object.entries(d.stock).map(([k, v]) => { const [dep, item] = k.split('|');
+    return `<tr><td>${esc(dep)}</td><td>${esc(item)}</td><td>${money(v)}</td></tr>`; }).join('') || '<tr><td colspan="3" class="mut">No stock data</td></tr>';
+  const al = [
+    ...d.otp_suspicious.map(a => `<div class="alert badb">Order ${esc(a.order_id)}: ${a.tries} wrong OTP attempts, check this delivery</div>`),
+    ...d.tank_alerts.map(a => `<div class="alert badb">Tank ${esc(a.tank_id)} low: ${Number(a.level_pct)}%</div>`),
+    ...d.unconfirmed_deliveries.map(a => `<div class="alert warnb">Order ${esc(a.order_id)} delivered without a valid OTP (${esc(REASON[a.reason] || a.reason)})</div>`),
+    ...d.double_entry_alerts.map(a => `<div class="alert warnb">Order ${esc(a.order_id)} recorded twice (extra entry ignored)</div>`),
+    ...d.postponed_orders.map(o => `<div class="alert warnb">Order ${esc(o)} postponed: customer was not home</div>`)];
+  $('alerts').innerHTML = al.join('') || 'None';
+}
+function renderOrders(rows) {
+  const c = {}; rows.forEach(o => c[o.status] = (c[o.status] || 0) + 1);
+  $('kpi').innerHTML = Object.keys(STATUS).map(k => `<div><span class="badge ${STATUS[k][1]}">${c[k] || 0}</span> ${STATUS[k][0]}</div>`).join('');
+  $('ord').innerHTML = rows.map(o => `<tr><td>${esc(o.order_id)}</td><td>${esc(o.village || o.customer_ref)}</td><td>${esc(o.device || '-')}</td>
+    <td>${o.qty}</td><td>${money(o.amount_due)}</td><td>${money(o.paid)}</td>
+    <td><span class="badge ${STATUS[o.status][1]}">${STATUS[o.status][0]}</span></td><td>${o.tries || ''}</td>
+    <td><button class="sm sec" data-otp="${esc(o.order_id)}">Resend OTP</button> <button class="sm sec" data-otp="${esc(o.order_id)}" data-new="1">New code</button></td></tr>`).join('')
+    || '<tr><td colspan="9" class="mut">No orders yet. Create one above.</td></tr>';
+}
+async function load() {
+  try {
+    const [a, b] = await Promise.all([jget('report/'), jget('orders/')]);
+    if (a.r.status === 403) { $('state').textContent = 'Log in as staff'; $('state').className = 'badge badb'; return; }
+    renderReport(a.j); renderOrders(b.j.orders);
+  } catch (e) { $('state').textContent = 'Cannot reach server'; $('state').className = 'badge badb'; }
+}
+document.addEventListener('click', async ev => {
+  const t = ev.target;
+  if (t.dataset && t.dataset.revoke) {
+    if (!confirm('Block ' + t.dataset.revoke + '? It will be erased the next time it connects.')) return;
+    await jpost('revoke/', { device_id: t.dataset.revoke }); load();
+  } else if (t.dataset && t.dataset.otp) {
+    const phone = prompt('Customer phone to SMS the ' + (t.dataset.new ? 'NEW ' : '') + 'code (leave empty to only generate):') || '';
+    const { r, j } = await jpost('otp/', { order_id: t.dataset.otp, phone, regenerate: !!t.dataset.new });
+    alert(r.ok ? (j.sms_sent ? 'SMS sent.' : 'No phone given, nothing sent.') + (j.otp ? ' Code (dev mode only): ' + j.otp : '') : (j.error || 'Failed'));
+  }
+});
+$('n_go').onclick = async () => {
+  const { r, j } = await jpost('orders/', { village: $('n_vil').value, customer_ref: $('n_ref').value, qty: $('n_qty').value,
+    amount_due: $('n_amt').value, depot: $('n_dep').value, item: $('n_item').value, assigned_device: $('n_dev').value, phone: $('n_ph').value });
+  $('n_res').textContent = r.ok ? `Created ${j.order_id}. ` + (j.sms_sent ? 'OTP sent by SMS.' : 'No phone given, OTP not sent.') + (j.otp ? ' Code (dev mode only): ' + j.otp : '') : (j.error || 'Failed');
+  if (r.ok) { $('n_ph').value = ''; $('n_amt').value = ''; load(); }
+};
+$('aud').onclick = async () => {
+  const { j } = await jget('audit/');
+  $('audres').textContent = j.chain_ok ? `Intact: ${j.events} records verified` : `TAMPERING DETECTED at record ${j.first_bad_event}`;
+  $('audres').style.color = j.chain_ok ? 'var(--ok)' : 'var(--bad)';
+};
+$('qb').onclick = async () => {
+  const id = $('qo').value.trim(); if (!id) return;
+  const { r, j } = await jpost('qr/', { order_id: id }); if (!r.ok) return alert(j.error || 'Failed');
+  $('qt').textContent = j.qr_token; $('qr').innerHTML = '';
+  if (window.QRCode) new QRCode($('qr'), { text: j.qr_token, width: 160, height: 160 });
+};
+load(); setInterval(load, 10000);
+</script>
+</body>
+</html>{% endverbatim %}
